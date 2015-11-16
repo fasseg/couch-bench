@@ -11,41 +11,54 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class CouchBench {
     private static final Logger log = LoggerFactory.getLogger(CouchBench.class);
 
     private final String host;
     private final int port;
-    private final long numInserts;
+    private final long numOperations;
     private final int numThreads;
     private final String tableName;
     private final boolean clean;
     private final List<Runnable> insertQueue = new ArrayList<Runnable>();
+    private AtomicInteger completedInsertCount = new AtomicInteger(0);
 
-    public CouchBench(String host, int port, String tableName, long numInserts, int numThreads, boolean clean) {
+    public CouchBench(String host, int port, String tableName, long numOperations, int numThreads, boolean clean) {
         this.host = host;
         this.port = port;
-        this.numInserts = numInserts;
+        this.numOperations = numOperations;
         this.numThreads = numThreads;
         this.tableName = tableName;
         this.clean = clean;
     }
 
+    public void incrementInsertCount() {
+        completedInsertCount.incrementAndGet();
+    }
+
     private void runBenchmark() throws IOException {
-        log.info("Inserting {} records on {}:{} using {} threads", numInserts, host, port, numThreads);
+        log.info("Inserting {} records on {}:{} using {} threads", numOperations, host, port, numThreads);
         initDB();
         final ExecutorService executor = Executors.newFixedThreadPool(numThreads);
-        for (long i = 1; i <= numInserts;i++) {
-            insertQueue.add(new InsertThread(i, host, port, tableName));
+        for (long i = 1; i <= numOperations; i++) {
+            insertQueue.add(new InsertThread(i, host, port, tableName, this));
         }
         long time = System.currentTimeMillis();
         for (final Runnable r : insertQueue) {
             executor.execute(r);
         }
         executor.shutdown();
+        long lastInterval = time;
         while (!executor.isTerminated()) {
             try {
+                long interval = System.currentTimeMillis() - lastInterval;
+                if (interval > 10000L) {
+                    long currentRunTime = System.currentTimeMillis() - time;
+                    log.info("Progress: {} inserts in {} seconds: {} inserts/sec", completedInsertCount.get(), (float) (currentRunTime) / 1000f, (float) completedInsertCount.get() * 1000f / (float) currentRunTime);
+                    lastInterval = System.currentTimeMillis();
+                }
                 Thread.sleep(50);
             } catch (InterruptedException e) {
                 log.error("Error while waiting for executor shutdown", e);
@@ -54,8 +67,8 @@ public class CouchBench {
         }
         time = System.currentTimeMillis() - time;
         log.info("Benchmark finished.");
-        log.info("{} inserts in {} ms", numInserts, time);
-        log.info("Throughput: {} ops/sec", (float) numInserts * 1000f / (float) time );
+        log.info("{} inserts in {} ms", numOperations, time);
+        log.info("Throughput: {} ops/sec", (float) numOperations * 1000f / (float) time );
     }
 
     private void initDB() throws IOException {
@@ -64,7 +77,7 @@ public class CouchBench {
                 .returnResponse();
         if (resp.getStatusLine().getStatusCode() == 404 || (resp.getStatusLine().getStatusCode() == 200 && clean)) {
             if (resp.getStatusLine().getStatusCode() == 200) {
-                log.info("cleanin benchmark table");
+                log.info("deleting benchmark table");
                 resp = Request.Delete("http://" + host + ":" + port + "/" + tableName)
                         .execute()
                         .returnResponse();
@@ -87,7 +100,7 @@ public class CouchBench {
         ops.addOption("t", "threads", true, "Number of threads [1]");
         ops.addOption("d", "destination-host", true, "Target host [localhost]");
         ops.addOption("p", "port", true, "Target port [5984]");
-        ops.addOption("n", "num-insert", true, "Number of insert operations [1000]");
+        ops.addOption("n", "num-operations", true, "Number of operations [1000]");
         ops.addOption("h", "help", false, "Print this help");
         ops.addOption("c", "clean", false, "Drop and recreate the benchmark table");
         ops.addOption("b", "table-name", true, "The database table to use [bench_table]");
@@ -137,8 +150,8 @@ public class CouchBench {
         if (cmd.hasOption("threads")) {
             numThreads = Integer.parseInt(cmd.getOptionValue("threads"));
         }
-        if (cmd.hasOption("num-insert")) {
-            numInserts = Long.parseLong(cmd.getOptionValue("num-insert"));
+        if (cmd.hasOption("num-operations")) {
+            numInserts = Long.parseLong(cmd.getOptionValue("num-operations"));
         }
         return new CouchBench(host, port, tableName, numInserts, numThreads, clean);
     }

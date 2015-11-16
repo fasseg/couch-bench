@@ -14,20 +14,19 @@ public class InsertThread implements Runnable {
     private final long index;
     private final String url;
     private final String payload;
+    private final CouchBench bench;
 
-    private long time;
-
-    public InsertThread(long index, String host, int port, String tableName) {
+    public InsertThread(long index, String host, int port, String tableName, CouchBench bench) {
         this.index = index;
         this.url = "http://" + host  + ":" + port + "/" + tableName;
+        this.bench = bench;
         payload = RandomRecordGenerator.randomRecord();
     }
 
     public void run() {
         log.debug("inserting record {}", index);
-        long start = System.currentTimeMillis();
         insertRecord();
-        time = System.currentTimeMillis() - start;
+        bench.incrementInsertCount();
     }
 
     private void insertRecord() {
