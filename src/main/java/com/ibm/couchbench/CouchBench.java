@@ -1,7 +1,9 @@
 package com.ibm.couchbench;
 
 import org.apache.commons.cli.*;
+import org.apache.http.HttpHost;
 import org.apache.http.HttpResponse;
+import org.apache.http.client.fluent.Executor;
 import org.apache.http.client.fluent.Request;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,14 +26,25 @@ public class CouchBench {
     private final boolean clean;
     private final List<Runnable> insertQueue = new ArrayList<Runnable>();
     private AtomicInteger completedInsertCount = new AtomicInteger(0);
+    private Executor requestExecutor;
 
-    public CouchBench(String host, int port, String tableName, long numOperations, int numThreads, boolean clean) {
+    public CouchBench(String host, int port, String username, String password, String tableName, long numOperations, int numThreads, boolean clean) {
         this.host = host;
         this.port = port;
         this.numOperations = numOperations;
         this.numThreads = numThreads;
         this.tableName = tableName;
         this.clean = clean;
+        final HttpHost httpHost = new HttpHost(host, port);
+        requestExecutor = Executor.newInstance();
+        if (username != null && password != null) {
+            requestExecutor.auth(httpHost, username, password)
+                    .authPreemptive(httpHost);
+        }
+    }
+
+    public Executor getRequestExecutor() {
+        return requestExecutor;
     }
 
     public void incrementInsertCount() {
@@ -41,17 +54,17 @@ public class CouchBench {
     private void runBenchmark() throws IOException {
         log.info("Inserting {} records on {}:{} using {} threads", numOperations, host, port, numThreads);
         initDB();
-        final ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+        final ExecutorService threadExecutor = Executors.newFixedThreadPool(numThreads);
         for (long i = 1; i <= numOperations; i++) {
             insertQueue.add(new InsertThread(i, host, port, tableName, this));
         }
         long time = System.currentTimeMillis();
         for (final Runnable r : insertQueue) {
-            executor.execute(r);
+            threadExecutor.execute(r);
         }
-        executor.shutdown();
+        threadExecutor.shutdown();
         long lastInterval = time;
-        while (!executor.isTerminated()) {
+        while (!threadExecutor.isTerminated()) {
             try {
                 long interval = System.currentTimeMillis() - lastInterval;
                 if (interval > 10000L) {
@@ -72,22 +85,19 @@ public class CouchBench {
     }
 
     private void initDB() throws IOException {
-        HttpResponse resp = Request.Get("http://" + host + ":" + port + "/" + tableName)
-                .execute()
+        HttpResponse resp =requestExecutor.execute(Request.Get("http://" + host + ":" + port + "/" + tableName))
                 .returnResponse();
         if (resp.getStatusLine().getStatusCode() == 404 || (resp.getStatusLine().getStatusCode() == 200 && clean)) {
             if (resp.getStatusLine().getStatusCode() == 200) {
                 log.info("deleting benchmark table");
-                resp = Request.Delete("http://" + host + ":" + port + "/" + tableName)
-                        .execute()
+                resp = requestExecutor.execute(Request.Delete("http://" + host + ":" + port + "/" + tableName))
                         .returnResponse();
                 if (resp.getStatusLine().getStatusCode() != 200) {
                     throw new IOException("Unable to delete table " + tableName);
                 }
             }
             log.info("creating benchmark table");
-            resp = Request.Put("http://" + host + ":" + port + "/" + tableName)
-                    .execute()
+            resp = requestExecutor.execute(Request.Put("http://" + host + ":" + port + "/" + tableName))
                     .returnResponse();
             if (resp.getStatusLine().getStatusCode() != 201) {
                 throw new IOException("Unable to create database table " + tableName);
@@ -104,6 +114,8 @@ public class CouchBench {
         ops.addOption("h", "help", false, "Print this help");
         ops.addOption("c", "clean", false, "Drop and recreate the benchmark table");
         ops.addOption("b", "table-name", true, "The database table to use [bench_table]");
+        ops.addOption("u", "user-name", true, "The authentication username");
+        ops.addOption("p", "password", true, "The authentication password");
         final CouchBench bench = createBench(ops, args);
         try {
             bench.runBenchmark();
@@ -120,6 +132,8 @@ public class CouchBench {
         long numInserts = 1000L;
         boolean clean;
         String tableName = "bench_table";
+        String username = null;
+        String password = null;
 
         final CommandLineParser parser = new DefaultParser();
         CommandLine cmd = null;
@@ -153,7 +167,13 @@ public class CouchBench {
         if (cmd.hasOption("num-operations")) {
             numInserts = Long.parseLong(cmd.getOptionValue("num-operations"));
         }
-        return new CouchBench(host, port, tableName, numInserts, numThreads, clean);
+        if (cmd.hasOption("user-name")) {
+            username = cmd.getOptionValue("user-name");
+        }
+        if (cmd.hasOption("password")) {
+            password = cmd.getOptionValue("password");
+        }
+        return new CouchBench(host, port, username, password, tableName, numInserts, numThreads, clean);
     }
 
     private static void printHelp(Options options) {
