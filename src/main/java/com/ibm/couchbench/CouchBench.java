@@ -109,7 +109,7 @@ public class CouchBench {
         final Options ops = new Options();
         ops.addOption("t", "threads", true, "Number of threads [1]");
         ops.addOption("d", "destination-host", true, "Target host [localhost]");
-        ops.addOption("p", "port", true, "Target port [5984]");
+        ops.addOption("l", "port", true, "Target port [5984]");
         ops.addOption("n", "num-operations", true, "Number of operations [1000]");
         ops.addOption("h", "help", false, "Print this help");
         ops.addOption("c", "clean", false, "Drop and recreate the benchmark table");
