@@ -22,19 +22,21 @@ public class CouchBench {
     private final int port;
     private final long numOperations;
     private final int numThreads;
+    private final Integer qValue;
     private final String tableName;
     private final boolean clean;
     private final List<Runnable> insertQueue = new ArrayList<Runnable>();
     private AtomicInteger completedInsertCount = new AtomicInteger(0);
     private Executor requestExecutor;
 
-    public CouchBench(String host, int port, String username, String password, String tableName, long numOperations, int numThreads, boolean clean) {
+    public CouchBench(String host, int port, String username, String password, String tableName, long numOperations, int numThreads, boolean clean, Integer qValue) {
         this.host = host;
         this.port = port;
         this.numOperations = numOperations;
         this.numThreads = numThreads;
         this.tableName = tableName;
         this.clean = clean;
+        this.qValue = qValue;
         final HttpHost httpHost = new HttpHost(host, port);
         requestExecutor = Executor.newInstance();
         if (username != null && password != null) {
@@ -55,9 +57,11 @@ public class CouchBench {
         log.info("Inserting {} records on {}:{} using {} threads", numOperations, host, port, numThreads);
         initDB();
         final ExecutorService threadExecutor = Executors.newFixedThreadPool(numThreads);
+        log.info("Preparing {} inserts", numOperations);
         for (long i = 1; i <= numOperations; i++) {
             insertQueue.add(new InsertThread(i, host, port, tableName, this));
         }
+        log.info("Sending requests");
         long time = System.currentTimeMillis();
         for (final Runnable r : insertQueue) {
             threadExecutor.execute(r);
@@ -97,7 +101,11 @@ public class CouchBench {
                 }
             }
             log.info("creating benchmark table");
-            resp = requestExecutor.execute(Request.Put("http://" + host + ":" + port + "/" + tableName))
+            String queryString = "";
+            if (qValue != null) {
+                queryString = "?q=" + qValue;
+            }
+            resp = requestExecutor.execute(Request.Put("http://" + host + ":" + port + "/" + tableName + queryString))
                     .returnResponse();
             if (resp.getStatusLine().getStatusCode() != 201) {
                 throw new IOException("Unable to create database table " + tableName);
@@ -113,9 +121,11 @@ public class CouchBench {
         ops.addOption("n", "num-operations", true, "Number of operations [1000]");
         ops.addOption("h", "help", false, "Print this help");
         ops.addOption("c", "clean", false, "Drop and recreate the benchmark table");
+        ops.addOption("q", "cloudant-q", true, "The Cloudant Quorum Q value to set when creating the table");
         ops.addOption("b", "table-name", true, "The database table to use [bench_table]");
         ops.addOption("u", "user-name", true, "The authentication username");
         ops.addOption("p", "password", true, "The authentication password");
+        ops.addOption("q", "cloudant-q", true, "The Cloudant Quorum Q value to set when creating the table");
         final CouchBench bench = createBench(ops, args);
         try {
             bench.runBenchmark();
@@ -129,6 +139,7 @@ public class CouchBench {
         String host = "localhost";
         int port = 5984;
         int numThreads = 1;
+        Integer qValue = null;
         long numInserts = 1000L;
         boolean clean;
         String tableName = "bench_table";
@@ -152,6 +163,9 @@ public class CouchBench {
         }
 
         clean = cmd.hasOption("clean");
+        if (cmd.hasOption("cloudant-q")) {
+            qValue = Integer.parseInt(cmd.getOptionValue("cloudant-q"));
+        }
         if (cmd.hasOption("table-name")) {
             tableName = cmd.getOptionValue("table-name");
         }
@@ -173,7 +187,7 @@ public class CouchBench {
         if (cmd.hasOption("password")) {
             password = cmd.getOptionValue("password");
         }
-        return new CouchBench(host, port, username, password, tableName, numInserts, numThreads, clean);
+        return new CouchBench(host, port, username, password, tableName, numInserts, numThreads, clean, qValue);
     }
 
     private static void printHelp(Options options) {

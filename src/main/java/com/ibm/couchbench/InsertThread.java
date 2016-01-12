@@ -40,6 +40,8 @@ public class InsertThread implements Runnable {
                         .returnResponse();
         } catch (IOException e) {
             log.error("Error while posting data", e);
+        } catch (RuntimeException e) {
+            log.error("Runtime error while posting data", e);
         }
     }
 }
