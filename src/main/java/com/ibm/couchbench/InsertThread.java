@@ -38,10 +38,8 @@ public class InsertThread implements Runnable {
                     executor.execute(Request.Post(url)
                         .bodyString(payload, ContentType.APPLICATION_JSON))
                         .returnResponse();
-        } catch (IOException e) {
-            log.error("Error while posting data", e);
-        } catch (RuntimeException e) {
-            log.error("Runtime error while posting data", e);
+        } catch (Exception e) {
+            bench.addException(e.getClass());
         }
     }
 }

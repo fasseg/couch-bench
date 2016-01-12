@@ -10,7 +10,11 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Exchanger;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -21,15 +25,16 @@ public class CouchBench {
     private final String host;
     private final int port;
     private final long numOperations;
+    private final Map<Class, Integer> exceptions = new ConcurrentHashMap<Class, Integer>();
     private final int numThreads;
     private final Integer qValue;
     private final String tableName;
     private final boolean clean;
-    private final List<Runnable> insertQueue = new ArrayList<Runnable>();
+    private final List<Runnable> insertQueue;
     private AtomicInteger completedInsertCount = new AtomicInteger(0);
     private Executor requestExecutor;
 
-    public CouchBench(String host, int port, String username, String password, String tableName, long numOperations, int numThreads, boolean clean, Integer qValue) {
+    public CouchBench(String host, int port, String username, String password, String tableName, int numOperations, int numThreads, boolean clean, Integer qValue) {
         this.host = host;
         this.port = port;
         this.numOperations = numOperations;
@@ -39,9 +44,20 @@ public class CouchBench {
         this.qValue = qValue;
         final HttpHost httpHost = new HttpHost(host, port);
         requestExecutor = Executor.newInstance();
+        this.insertQueue = new ArrayList<Runnable>(numOperations);
         if (username != null && password != null) {
             requestExecutor.auth(httpHost, username, password)
                     .authPreemptive(httpHost);
+        }
+    }
+
+    public void addException(Class exceptionClass) {
+        synchronized (exceptions) {
+            if (!exceptions.containsKey(exceptionClass)) {
+                exceptions.put(exceptionClass, 1);
+            } else {
+                exceptions.put(exceptionClass, exceptions.get(exceptionClass) + 1);
+            }
         }
     }
 
@@ -83,7 +99,16 @@ public class CouchBench {
             }
         }
         time = System.currentTimeMillis() - time;
-        log.info("Benchmark finished.");
+        if (exceptions.size() > 0 ) {
+            int numErrors = 0;
+            for (Map.Entry<Class, Integer> exc : exceptions.entrySet()) {
+                numErrors += exc.getValue();
+                log.info("{} occured {} times", exc.getKey(), exc.getValue());
+            }
+            log.info("Benchmark finished with {} errors.", numErrors);
+        } else {
+            log.info("Benchmark finished without errors.");
+        }
         log.info("{} inserts in {} ms", numOperations, time);
         log.info("Throughput: {} ops/sec", (float) numOperations * 1000f / (float) time );
     }
@@ -140,7 +165,7 @@ public class CouchBench {
         int port = 5984;
         int numThreads = 1;
         Integer qValue = null;
-        long numInserts = 1000L;
+        int numInserts = 1000;
         boolean clean;
         String tableName = "bench_table";
         String username = null;
@@ -179,7 +204,7 @@ public class CouchBench {
             numThreads = Integer.parseInt(cmd.getOptionValue("threads"));
         }
         if (cmd.hasOption("num-operations")) {
-            numInserts = Long.parseLong(cmd.getOptionValue("num-operations"));
+            numInserts = Integer.parseInt(cmd.getOptionValue("num-operations"));
         }
         if (cmd.hasOption("user-name")) {
             username = cmd.getOptionValue("user-name");
