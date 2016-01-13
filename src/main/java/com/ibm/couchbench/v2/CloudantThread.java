@@ -28,8 +28,11 @@ public class CloudantThread implements Runnable {
 
     private void insertRandomRecord() {
         try {
-            final HttpResponse resp = Request.Post(url)
-                    .addHeader(authHeader)
+            Request req = Request.Post(url);
+            if (authHeader != null) {
+                req.addHeader(authHeader);
+            }
+            final HttpResponse resp = req
                     .bodyString(RandomRecordGenerator.randomRecord(), ContentType.APPLICATION_JSON)
                     .execute()
                     .returnResponse();

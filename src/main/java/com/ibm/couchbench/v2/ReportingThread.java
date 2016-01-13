@@ -23,6 +23,10 @@ public class ReportingThread implements Runnable {
                 log.info("{} inserts in {} secs: {} inserts/sec", numFinished, elapsed, (float) numFinished/elapsed);
                 lastreport = System.currentTimeMillis();
             }
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+            }
         }
     }
 
