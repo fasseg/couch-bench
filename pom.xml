@@ -39,7 +39,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>com.ibm.couchbench.CouchBench</mainClass>
+                            <mainClass>com.ibm.couchbench.v2.CloudantBench</mainClass>
                         </manifest>
                     </archive>
                     <descriptorRefs>
